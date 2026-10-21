@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plandrehen – Drehzahl und Schnittgeschwindigkeit</title>
+<style>
+:root{color-scheme:dark;--bg:#101722;--panel:#192432;--line:#344354;--text:#f3f6fa;--muted:#aab8c7;--cyan:#48d7e8;--orange:#ffb454;--green:#72e0a4;--red:#ff777e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1050px;margin:auto;padding:22px}header{margin-bottom:16px}h1{font-size:clamp(1.5rem,3vw,2rem);margin:0}h2{font-size:1rem;margin:0 0 12px;color:#dce7f2}.sub{color:var(--muted);font-size:.92rem;margin-top:4px}
+.layout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:14px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:17px;min-width:0}
+#machine{width:100%;height:auto;display:block;background:#111b27;border-radius:9px}
+.mode{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px}.mode button,.action{border:1px solid var(--line);background:#202e3e;color:var(--text);border-radius:8px;padding:10px 12px;font:inherit;cursor:pointer}
+.mode button[aria-pressed=true]{background:#12414a;border-color:var(--cyan);color:#c8fbff}
+.control{display:grid;gap:7px;margin:16px 0}.labelrow{display:flex;justify-content:space-between;gap:10px;font-size:.92rem}.muted{color:var(--muted)}.val{font-weight:750;font-variant-numeric:tabular-nums;color:var(--cyan)}input[type=range]{width:100%;accent-color:var(--cyan);cursor:pointer}
+.metric{padding:17px 15px;border-radius:10px;background:#101a26;border:1px solid #354658;margin-top:10px}.metric .name{color:var(--muted);font-size:.9rem}.metric .big{font-size:clamp(1.7rem,3.6vw,2.4rem);font-weight:800;letter-spacing:-.04em;line-height:1.25;margin-top:5px;font-variant-numeric:tabular-nums}.metric .unit{font-size:.88rem;font-weight:500;color:var(--muted);letter-spacing:0}
+input[type=number]{width:100%;background:#101a26;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:9px;font:inherit}
+.field-label{font-size:.9rem;color:#dce7f2}.status{font-size:.9rem;margin-top:14px;padding:11px 12px;border-radius:8px;background:#14372e;color:#b9f6d6}.status.warn{background:#402d1a;color:#ffdda7}
+.action{margin-top:10px}.action.primary{background:#145461;border-color:#258a98}.note{font-size:.8rem;color:#8798aa;margin-top:14px}
+@media(max-width:760px){main{padding:12px}.layout{grid-template-columns:1fr}.mode{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <h1>Plandrehen</h1>
+ <div class="sub">Werkzeug radial zur Mitte verfahren und die aktuellen Schnittwerte beobachten.</div>
+</header>
+<div class="layout">
+ <section class="panel">
+  <h2>Werkstück und Werkzeug</h2>
+  <canvas id="machine" width="700" height="430" aria-label="Werkstück und Drehwerkzeug mit Schneide auf Werkstückachse"></canvas>
+  <div class="control">
+   <div class="labelrow"><label for="pos">Werkzeugposition</label><span class="val" id="posText">Ø 100 mm</span></div>
+   <input id="pos" type="range" min="0" max="100" step=".5" value="100">
+   <div class="labelrow muted"><span>Mitte · Ø 0 mm</span><span>Außen · Ø 100 mm</span></div>
+  </div>
+  <div class="actions"><button class="action primary" id="play">▶ Automatisch verfahren</button><button class="action" id="reset">Zurücksetzen</button></div>
+ </section>
+ <section class="panel">
+  <h2>Betriebsart</h2>
+  <div class="mode">
+   <button id="modeRpm" aria-pressed="true">Konstante Drehzahl</button>
+   <button id="modeVc" aria-pressed="false">Konstante Schnittgeschwindigkeit</button>
+  </div>
+  <div id="rpmSetting" class="control">
+   <div class="field-label">Eingestellte Drehzahl (max. 2000 min⁻¹)</div>
+   <input id="rpm" type="range" min="100" max="2000" step="50" value="1000">
+   <div class="labelrow"><span class="muted">Soll-Drehzahl</span><span class="val" id="rpmSetText">1000 min⁻¹</span></div>
+  </div>
+  <div id="vcSetting" class="control" hidden>
+   <div class="field-label">Eingestellte Schnittgeschwindigkeit</div>
+   <input id="vc" type="range" min="10" max="500" step="10" value="300">
+   <div class="labelrow"><span class="muted">Soll-Schnittgeschwindigkeit</span><span class="val" id="vcSetText">300 m/min</span></div>
+  </div>
+  <div class="metric">
+   <div class="name">Ist-Drehzahl</div>
+   <div class="big" id="rpmNow">1000 <span class="unit">min⁻¹</span></div>
+  </div>
+  <div class="metric">
+   <div class="name">Ist-Schnittgeschwindigkeit</div>
+   <div class="big" id="vcNow">314,2 <span class="unit">m/min</span></div>
+  </div>
+  <div id="status" class="status">Konstante Drehzahl: Die Schnittgeschwindigkeit sinkt beim Verfahren zur Mitte.</div>
+  <div class="note">Werkstückdurchmesser fest: 100 mm · Maximale Drehzahl: 2000 min⁻¹</div>
+ </section>
+</div>
+</main>
+<script>
+(()=>{
+const $=id=>document.getElementById(id), canvas=$('machine'),ctx=canvas.getContext('2d');
+const S={mode:'rpm',d:100,rpm:1000,vc:300,run:false,last:0,phase:0};
+const MAX=2000,D=100;
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const fmt=(x,n=0)=>Number.isFinite(x)?x.toLocaleString('de-DE',{minimumFractionDigits:n,maximumFractionDigits:n}):'nicht definiert';
+function calc(){
+ if(S.mode==='rpm')return {n:S.rpm,vc:Math.PI*S.d*S.rpm/1000,required:S.rpm,limited:false};
+ if(S.d<=0)return {n:0,vc:0,required:Infinity,limited:true};
+ const required=1000*S.vc/(Math.PI*S.d),n=Math.min(MAX,required);
+ return {n,vc:Math.PI*S.d*n/1000,required,limited:required>MAX+1e-8};
+}
+function update(){
+ $('pos').value=S.d;$('posText').textContent='Ø '+fmt(S.d,1)+' mm';
+ $('rpm').value=S.rpm;$('vc').value=S.vc;
+ $('rpmSetText').textContent=S.rpm+' min⁻¹';$('vcSetText').textContent=S.vc+' m/min';
+ $('modeRpm').setAttribute('aria-pressed',S.mode==='rpm');$('modeVc').setAttribute('aria-pressed',S.mode==='vc');
+ $('rpmSetting').hidden=S.mode!=='rpm';$('vcSetting').hidden=S.mode!=='vc';
+ const a=calc();
+ $('rpmNow').innerHTML=fmt(a.n)+' <span class="unit">min⁻¹</span>';
+ $('vcNow').innerHTML=fmt(a.vc,1)+' <span class="unit">m/min</span>';
+ const status=$('status');
+ if(a.limited){status.className='status warn';status.textContent=S.d===0?'Bei Ø 0 mm ist die erforderliche Drehzahl nicht definiert. Die Ist-Schnittgeschwindigkeit beträgt 0 m/min.':'Drehzahlgrenze aktiv: rechnerisch wären '+fmt(a.required)+' min⁻¹ erforderlich. Die Ist-Drehzahl ist auf 2000 min⁻¹ begrenzt.'}
+ else {status.className='status';status.textContent=S.mode==='rpm'?'Konstante Drehzahl: Die Ist-Schnittgeschwindigkeit verändert sich mit dem aktuellen Durchmesser.':'Konstante Schnittgeschwindigkeit: Die Drehzahl steigt beim Verfahren zur Mitte bis maximal 2000 min⁻¹.'}
+ draw();
+}
+function draw(){
+ const W=canvas.width,H=canvas.height;
+ ctx.clearRect(0,0,W,H);
+ ctx.fillStyle='#ffffff';
+ ctx.fillRect(0,0,W,H);
+
+ // Werkstück als einfache Stirnansicht
+ const cx=150, cy=215, r=132, rr=r*S.d/D;
+ ctx.fillStyle='#4776c4';
+ ctx.strokeStyle='#345b9a';
+ ctx.lineWidth=1;
+ ctx.beginPath();
+ ctx.arc(cx,cy,r,0,Math.PI*2);
+ ctx.fill();
+ ctx.stroke();
+
+ // Bearbeiteter Bereich: beim Verfahren nach innen wird die bereits
+ // überfahrene Stirnfläche farblich hervorgehoben.
+ if (rr < r - 0.5) {
+   ctx.fillStyle = '#68c9a0';
+   ctx.beginPath();
+   ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+   ctx.fill();
+   ctx.strokeStyle = '#368f70';
+   ctx.lineWidth = 1;
+   ctx.stroke();
+ }
+
+ // Werkzeughalter: dunkler rechteckiger Schaft rechts neben dem Werkstück.
+ // Die gelbe Schneidplatte sitzt oben links am Halter.
+ const tipX=cx+rr, tipY=cy;
+ ctx.fillStyle='#3f3f3f';
+ ctx.strokeStyle='#252525';
+ ctx.lineWidth=1;
+ ctx.fillRect(tipX+13,tipY+22,Math.max(40,W-(tipX+13)-28),62);
+ ctx.strokeRect(tipX+13,tipY+22,Math.max(40,W-(tipX+13)-28),62);
+
+ // Gelbe Schneidplatte, rechteckig wie in der Referenz.
+ ctx.fillStyle='#ffbf00';
+ ctx.strokeStyle='#777777';
+ ctx.lineWidth=1;
+ ctx.fillRect(tipX,tipY,82,26);
+ ctx.strokeRect(tipX,tipY,82,26);
+
+ // Roter Punkt kennzeichnet exakt die linke obere Ecke der gelben Platte:
+ // dies ist die Schneidenecke und liegt auf der Werkstückmitte in der Höhe.
+ ctx.fillStyle='#d71920';
+ ctx.beginPath();
+ ctx.arc(tipX,tipY,3,0,Math.PI*2);
+ ctx.fill();
+}
+$('pos').addEventListener('input',e=>{S.d=clamp(Number(e.target.value)||0,0,D);S.run=false;$('play').textContent='▶ Automatisch verfahren';update()});
+$('rpm').addEventListener('input',e=>{S.rpm=clamp(Number(e.target.value)||100,100,MAX);update()});
+$('vc').addEventListener('input',e=>{S.vc=clamp(Number(e.target.value)||10,10,500);update()});
+$('modeRpm').addEventListener('click',()=>{S.mode='rpm';update()});
+$('modeVc').addEventListener('click',()=>{S.mode='vc';update()});
+$('play').addEventListener('click',()=>{S.run=!S.run;S.last=0;if(S.run&&S.d<=0)S.d=D;$('play').textContent=S.run?'Ⅱ Pause':'▶ Automatisch verfahren';update()});
+$('reset').addEventListener('click',()=>{S.run=false;S.d=D;S.phase=0;$('play').textContent='▶ Automatisch verfahren';update()});
+function frame(ts){if(S.run){if(S.last){S.d=clamp(S.d-12*Math.min((ts-S.last)/1000,.05),0,D);if(S.d===0){S.run=false;$('play').textContent='▶ Automatisch verfahren'}}S.last=ts;S.phase+=.08;update()}else{S.last=0;S.phase+=.008;draw()}requestAnimationFrame(frame)}
+update();requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
